@@ -109,7 +109,24 @@ Press **i** to see current status:
 2. **Safety Triggered**: Red - High effort detected, auto-opening
 3. **Recovery**: System automatically returns to normal when effort decreases
 
+<<<<<<< HEAD
 ## Dependencies
+=======
+## Installation
+
+### Dependencies
+
+First, install the required dependencies using wstool:
+
+```bash
+# From your workspace src directory
+wstool init .
+wstool merge dynamixel_scissors/.rosinstall
+wstool update
+```
+
+### ROS Dependencies
+>>>>>>> change as ros package
 
 - rospy
 - control_msgs
@@ -117,6 +134,10 @@ Press **i** to see current status:
 - actionlib_msgs
 - sensor_msgs
 - std_msgs
+<<<<<<< HEAD
+=======
+- dynamixel_general_hw
+>>>>>>> change as ros package
 
 ## Example Usage
 

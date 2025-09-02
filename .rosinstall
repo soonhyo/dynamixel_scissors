@@ -1,0 +1,4 @@
+- git:
+    local-name: dynamixel_general_hw
+    uri: https://github.com/pazeshun/dynamixel-workbench.git
+    version: dynamixel-general-hw

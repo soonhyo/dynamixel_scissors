@@ -37,7 +37,7 @@ class ScissorControlNode:
         self.goal_id_counter = 0
         
         # Safety parameters
-        self.max_effort = 0.5  # Maximum allowed effort
+        self.max_effort = 1.0  # Maximum allowed effort
         self.current_effort = 0.0
         self.safety_open_distance = 0.2  # How much to open when safety triggered
         self.safety_active = False
