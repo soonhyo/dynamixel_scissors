@@ -1,0 +1,19 @@
+# Goal
+string command           # Commands: open, close, toggle, set_position, full_open, full_close, reset_center, set_center
+float32 position         # Target position for set_position command
+float32 duration         # Duration for movement (optional, default 1.0)
+
+---
+
+# Result  
+bool success             # Whether the command completed successfully
+string message           # Status message
+float32 final_position   # Final position achieved
+
+---
+
+# Feedback
+float32 current_position # Current position during execution
+float32 current_effort   # Current effort reading
+bool safety_active       # Whether safety mode is active
+string status_message    # Current status

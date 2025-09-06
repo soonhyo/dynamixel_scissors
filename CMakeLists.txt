@@ -9,6 +9,13 @@ project(dynamixel_scissors)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   dynamixel_general_hw
+  actionlib
+  actionlib_msgs
+  control_msgs
+  trajectory_msgs
+  std_msgs
+  sensor_msgs
+  message_generation
 )
 
 ## System dependencies are found with CMake's conventions
@@ -59,17 +66,17 @@ find_package(catkin REQUIRED COMPONENTS
 # )
 
 ## Generate actions in the 'action' folder
-# add_action_files(
-#   FILES
-#   Action1.action
-#   Action2.action
-# )
+add_action_files(
+  FILES
+  ScissorControl.action
+)
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs  # Or other packages containing msgs
-# )
+generate_messages(
+  DEPENDENCIES
+  actionlib_msgs
+  std_msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -103,7 +110,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES dynamixel_scissors
-  CATKIN_DEPENDS dynamixel_general_hw
+  CATKIN_DEPENDS dynamixel_general_hw actionlib actionlib_msgs control_msgs trajectory_msgs std_msgs sensor_msgs message_runtime
 #  DEPENDS system_lib
 )
 
