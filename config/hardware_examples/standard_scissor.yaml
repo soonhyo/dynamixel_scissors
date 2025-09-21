@@ -1,0 +1,26 @@
+# Standard Scissor Configuration
+# For hardware where max_position = open state
+
+hardware:
+  joint_name: "scissor_joint"
+  position_limits:
+    min_position: -3.14
+    max_position: 0.50
+  position_mapping:
+    open_is_max: true  # max_position corresponds to open
+    custom_open_position: null
+    custom_close_position: null
+
+control:
+  position_increment: 0.05
+  min_command_interval: 0.05
+  trajectory:
+    default_duration: 0.3
+    full_motion_duration: 1.0
+    emergency_duration: 0.5
+
+safety:
+  max_effort: 1.0
+  safety_open_distance: 0.2
+  safety_cooldown: 2.0
+  effort_normal_threshold: 0.8
