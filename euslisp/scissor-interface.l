@@ -38,14 +38,16 @@
     (setq goal-id-counter 0)
 
     ;; Initialize publishers and subscribers
+    (ros::advertise trajectory-topic
+                         control_msgs::FollowJointTrajectoryActionGoal)
     (setq trajectory-pub
-          (ros::advertise trajectory-topic
-                         control_msgs::FollowJointTrajectoryActionGoal))
+          trajectory-topic)
 
-    (setq joint-sub
-          (ros::subscribe joint-states-topic
+    (ros::subscribe joint-states-topic
                          sensor_msgs::JointState
-                         #'send self :joint-state-callback))
+                         #'send self :joint-state-callback)
+
+    (setq joint-sub joint-states-topic)
 
     (ros::ros-info "Scissor interface initialized")
     (ros::ros-info "Joint name: ~A" target-joint)
