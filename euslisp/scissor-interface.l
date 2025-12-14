@@ -20,8 +20,8 @@
   (:init (&key (joint-name "sample_joint")
                (trajectory-topic "/sample_robot/position_joint_trajectory_controller/follow_joint_trajectory/goal")
                (joint-states-topic "/sample_robot/joint_states")
-               (open-position 0.5)
-               (close-position -3.14)
+               (open-position -2.5)
+               (close-position 0.0)
                (open-is-max t))
     ;; Initialize ROS node
     (ros::roseus "scissor_euslisp_interface")
