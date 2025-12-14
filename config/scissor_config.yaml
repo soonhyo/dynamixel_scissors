@@ -3,7 +3,7 @@
 
 # Hardware Configuration
 hardware:
-  joint_name: "sample_joint"  # Name of the joint in ROS joint_states
+  joint_name: "scissor_joint"  # Name of the joint in ROS joint_states
 
   # Position limits (in radians)
   position_limits:
@@ -41,8 +41,8 @@ safety:
 
 # ROS Topic Configuration
 topics:
-  trajectory_goal: "/sample_robot/position_joint_trajectory_controller/follow_joint_trajectory/goal"
-  joint_states: "/sample_robot/joint_states"
+  trajectory_goal: "/ros_scissor/position_joint_trajectory_controller/follow_joint_trajectory/goal"
+  joint_states: "/ros_scissor/joint_states"
 
 # Display Configuration
 display:

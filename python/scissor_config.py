@@ -49,7 +49,7 @@ class ScissorConfig:
         """Load default configuration when file is not available"""
         self.config_data = {
             'hardware': {
-                'joint_name': 'sample_joint',
+                'joint_name': 'scissor_joint',
                 'position_limits': {
                     'min_position': -3.14,
                     'max_position': 0.50
@@ -76,8 +76,8 @@ class ScissorConfig:
                 'effort_normal_threshold': 0.8
             },
             'topics': {
-                'trajectory_goal': '/sample_robot/position_joint_trajectory_controller/follow_joint_trajectory/goal',
-                'joint_states': '/sample_robot/joint_states'
+                'trajectory_goal': '/ros_scissor/position_joint_trajectory_controller/follow_joint_trajectory/goal',
+                'joint_states': '/ros_scissor/joint_states'
             },
             'display': {
                 'show_position_precision': 3,
@@ -142,7 +142,7 @@ class ScissorConfig:
 
     # Hardware configuration getters
     def get_joint_name(self) -> str:
-        return self.get('hardware.joint_name', 'sample_joint')
+        return self.get('hardware.joint_name', 'scissor_joint')
 
     def get_min_position(self) -> float:
         return self.get('hardware.position_limits.min_position', -3.14)
@@ -213,10 +213,10 @@ class ScissorConfig:
     # Topic configuration getters
     def get_trajectory_goal_topic(self) -> str:
         return self.get('topics.trajectory_goal',
-                       '/sample_robot/position_joint_trajectory_controller/follow_joint_trajectory/goal')
+                       '/ros_scissor/position_joint_trajectory_controller/follow_joint_trajectory/goal')
 
     def get_joint_states_topic(self) -> str:
-        return self.get('topics.joint_states', '/sample_robot/joint_states')
+        return self.get('topics.joint_states', '/ros_scissor/joint_states')
 
     # Display configuration getters
     def get_position_precision(self) -> int:
