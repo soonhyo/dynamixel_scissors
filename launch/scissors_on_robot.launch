@@ -10,6 +10,7 @@
   <arg name="baud_rate" default="57600" />
   <arg name="protocol_1_0" default="false" />
   <arg name="launch_rviz" default="false" />
+  <arg name="enable_connection_monitor" default="true" />
 
   <!-- Mount offset from scissors.yaml:
        translation: [-0.0635, -0.01, 0.200]
@@ -19,7 +20,7 @@
   <node pkg="tf2_ros" type="static_transform_publisher" name="scissors_mount_tf"
         args="-0.0635 -0.01 0.200 0 0 0.707107 0.707107 RARM_JOINT5_Link scissor/base_link" />
 
-  <!-- Dynamixel hardware control -->
+  <!-- Dynamixel hardware control (respawn enabled for reconnection) -->
   <include file="$(find dynamixel_general_hw)/launch/dynamixel_general_control.launch">
     <arg name="port_name" value="$(arg port_name)" />
     <arg name="baud_rate" value="$(arg baud_rate)" />
@@ -31,6 +32,8 @@
     <arg name="controllers_to_start" value="joint_state_controller position_joint_trajectory_controller" />
     <arg name="launch_robot_state_publisher" value="false" />
     <arg name="launch_rviz" value="false" />
+    <arg name="required" value="false" />
+    <arg name="respawn" value="true" />
   </include>
 
   <!-- Angle converter: motor angle → blade angle -->
@@ -52,4 +55,10 @@
 
   <!-- Scissor control node -->
   <node pkg="dynamixel_scissors" type="scissor_control_node.py" name="scissor_control" output="screen"/>
+
+  <!-- Connection monitor: detects garbage data from failed syncRead, restarts dynamixel node -->
+  <node if="$(arg enable_connection_monitor)"
+        pkg="dynamixel_scissors" type="scissors_connection_monitor.py"
+        name="scissors_connection_monitor" output="screen">
+  </node>
 </launch>

@@ -67,6 +67,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>message_runtime</exec_depend>
+  <exec_depend>controller_manager_msgs</exec_depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->
