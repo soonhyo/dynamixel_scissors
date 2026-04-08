@@ -7,6 +7,7 @@ Panels:
         - /Global Options1
         - /Status1
         - /RobotModel1
+        - /TF1
       Splitter Ratio: 0.5
     Tree Height: 461
   - Class: rviz/Selection
@@ -67,7 +68,17 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        scissor/sample_link:
+        scissor/fixed_blade:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        scissor/moving_blade:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        scissor/pivot_pin:
           Alpha: 1
           Show Axes: false
           Show Trail: false
@@ -78,6 +89,80 @@ Visualization Manager:
       Update Interval: 0
       Value: true
       Visual Enabled: true
+    - Class: rviz/TF
+      Enabled: true
+      Filter (blacklist): ""
+      Filter (whitelist): ""
+      Frame Timeout: 15
+      Frames:
+        All Enabled: true
+        human/base_link:
+          Value: true
+        human/body_link:
+          Value: true
+        human/ear_left_link:
+          Value: true
+        human/ear_right_link:
+          Value: true
+        human/face_link:
+          Value: true
+        human/hair_bottom_link:
+          Value: true
+        human/hair_top_link:
+          Value: true
+        human/head_link:
+          Value: true
+        human/head_mesh_link:
+          Value: true
+        human/neck_link:
+          Value: true
+        odom:
+          Value: true
+        scissor/base_link:
+          Value: true
+        scissor/fixed_blade:
+          Value: true
+        scissor/moving_blade:
+          Value: true
+        scissor/pivot_pin:
+          Value: true
+        world:
+          Value: true
+      Marker Alpha: 1
+      Marker Scale: 0.10000000149011612
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Tree:
+        scissor/base_link:
+          scissor/fixed_blade:
+            {}
+          scissor/moving_blade:
+            {}
+          scissor/pivot_pin:
+            {}
+        world:
+          human/base_link:
+            human/body_link:
+              human/neck_link:
+                human/head_link:
+                  human/ear_left_link:
+                    {}
+                  human/ear_right_link:
+                    {}
+                  human/face_link:
+                    {}
+                  human/hair_bottom_link:
+                    {}
+                  human/hair_top_link:
+                    {}
+            human/head_mesh_link:
+              {}
+          odom:
+            {}
+      Update Interval: 0
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -106,7 +191,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 4.338220119476318
+      Distance: 0.19663074612617493
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -122,9 +207,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.570398211479187
+      Pitch: 0.19039848446846008
       Target Frame: <Fixed Frame>
-      Yaw: 0.8003979921340942
+      Yaw: 0.6703981161117554
     Saved: ~
 Window Geometry:
   Displays:

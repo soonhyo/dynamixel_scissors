@@ -1,59 +1,189 @@
 <?xml version="1.0"?>
 <robot name="ros_scissor">
 
+  <!--
+    Scissors URDF model with linkage mechanism
+    - Fixed blade + moving blade driven by Dynamixel XC330 via 4-bar linkage
+    - Blade length: 70mm, Pivot-to-handle-end: 70mm
+    - Joint=0: closed (blades aligned)
+    - Actual angle computed by scissors_angle_converter node via 4-bar linkage kinematics
+    - Motor angle (0.50~-3.14) -> blade angle (~0~-0.67 rad / ~0~-38 deg)
+  -->
+
+  <!-- ============ Base Link (at pivot) ============ -->
   <link name="scissor/base_link">
     <visual>
       <geometry>
-        <box size="0.2 0.2 0.2"/>
+        <sphere radius="0.001"/>
       </geometry>
-      <material name="red">
-        <color rgba="1 0 0 1"/>
+      <material name="invisible">
+        <color rgba="0 0 0 0"/>
       </material>
     </visual>
   </link>
 
-  <link name="scissor/sample_link">
+  <!-- ============ Pivot Pin ============ -->
+  <link name="scissor/pivot_pin">
     <visual>
-      <origin rpy="0 0 0" xyz="0 0 0.3"/>
       <geometry>
-        <box size="0.2 0.2 0.6"/>
+        <cylinder radius="0.004" length="0.010"/>
       </geometry>
-      <material name="green">
-        <color rgba="0 1 0 1"/>
+      <material name="dark_metal">
+        <color rgba="0.35 0.35 0.4 1"/>
       </material>
     </visual>
   </link>
 
-  <!--
-    Joint limits are example values for XC330-T288-T with scissor_trans (it is written later).
-    lower: ((Min Position Limit [rad]) - (center position [rad])) / (mechanicalReduction in scissor_trans) = (0 - pi) / 1.0
-    upper: ((Max Position Limit [rad]) - (center position [rad])) / (mechanicalReduction in scissor_trans) = (2 * pi - pi) / 1.0
-    velocity: (No Load Speed [rad/s]) / (mechanicalReduction in scissor_trans) = (65 [rev/min] * 2 * pi / 60) / 1.0
-    You do not have to change those values when you just try this sample because those values have little influence on main topics of this sample.
-    But when you apply dynamixel_general_hw to your robot, you may have to change those values in your urdf depending on your situation (e.g., you use a different actuator, link collision occurs in your real robot when the actuator moves to Min/Max Position Limit, you want to keep a motion slow for safety)
-  -->
-  <joint name="scissor_joint" type="revolute">
-    <origin rpy="0 0 0" xyz="0 0 0.1"/>
+  <joint name="pivot_pin_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="1.5708 0 0"/>
     <parent link="scissor/base_link"/>
-    <child link="scissor/sample_link"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="-3.1415" upper="3.1415" effort="0" velocity="6.8"/>
+    <child link="scissor/pivot_pin"/>
   </joint>
 
+  <!-- ============ Fixed Blade ============ -->
+  <link name="scissor/fixed_blade">
+    <!-- Blade: pivot to tip (+Z), 70mm, width 12mm, thickness 1.5mm -->
+    <visual>
+      <origin xyz="0 0 0.035" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.012 0.0015 0.07"/>
+      </geometry>
+      <material name="silver">
+        <color rgba="0.82 0.82 0.86 1"/>
+      </material>
+    </visual>
+    <!-- Handle bar: pivot to end (-Z), 65mm -->
+    <visual>
+      <origin xyz="0 0 -0.0325" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.008 0.003 0.065"/>
+      </geometry>
+      <material name="gray">
+        <color rgba="0.45 0.45 0.45 1"/>
+      </material>
+    </visual>
+    <!-- Handle ring -->
+    <visual>
+      <origin xyz="0 0 -0.070" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.013" length="0.004"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0.15 0.15 0.15 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="fixed_blade_joint" type="fixed">
+    <origin xyz="0 0.0015 0" rpy="0 0 0"/>
+    <parent link="scissor/base_link"/>
+    <child link="scissor/fixed_blade"/>
+  </joint>
+
+  <!-- ============ Moving Blade ============ -->
+  <link name="scissor/moving_blade">
+    <!-- Blade: pivot to tip (+Z), 70mm -->
+    <visual>
+      <origin xyz="0 0 0.035" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.012 0.0015 0.07"/>
+      </geometry>
+      <material name="silver"/>
+    </visual>
+    <!-- Handle bar: pivot to end (-Z), 65mm -->
+    <visual>
+      <origin xyz="0 0 -0.0325" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.008 0.003 0.065"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+    <!-- Handle ring -->
+    <visual>
+      <origin xyz="0 0 -0.070" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.013" length="0.004"/>
+      </geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+
+  <!-- joint=0: closed (blades aligned), angle computed by scissors_angle_converter node -->
+  <joint name="scissor_joint" type="revolute">
+    <origin xyz="0 -0.0015 0" rpy="0 0 0"/>
+    <parent link="scissor/base_link"/>
+    <child link="scissor/moving_blade"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3.1415" upper="0.50" effort="0" velocity="6.8"/>
+  </joint>
+
+  <!-- ============ Motor Body (XC330: 20x20x26mm) ============ -->
   <!--
-    transmission tag describes the relationship between a joint in your robot and its actuator.
-    dynamixel_general_hw loads this in order to:
-    - convert Dynamixel actuator state into joint-level state
-    - convert joint-level command into Dynamixel actuator command
-    dynamixel_general_hw only loads transmissions whose actuator names are included in dynamixel_info.yaml.
-    Joints of those transmissions will be managed by dynamixel_general_hw.
-    Therefore, you can use a whole-body URDF/Xacro including non-Dynamixel actuators by specifying target Dynamixel actuators in dynamixel_info.yaml
+    Position: fixed blade handle center (0, 0.0015, -0.035) + offset (0.01, -0.01, -0.035)
+    = (0.01, -0.0085, -0.070) in base frame
+    Motor shaft axis is along Y
   -->
-  <!--
-    Specify one or more hardwareInterface.
-    hardware_interface/PositionJointInterface is specified because the ros_control controller used in this sample requires it.
-    But you can specify other interfaces in parallel to prepare for loading other controllers
-  -->
+  <link name="scissor/motor_body">
+    <visual>
+      <geometry>
+        <box size="0.020 0.020 0.026"/>
+      </geometry>
+      <material name="motor_black">
+        <color rgba="0.15 0.15 0.15 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="motor_body_joint" type="fixed">
+    <origin xyz="0.01 -0.0085 -0.070" rpy="0 0 0"/>
+    <parent link="scissor/base_link"/>
+    <child link="scissor/motor_body"/>
+  </joint>
+
+  <!-- ============ Coupling Bracket ============ -->
+  <!-- Position: motor_body center + z=10mm -->
+  <!-- Size: x=35mm, z=50mm, y=15mm (extending in -Y) -->
+  <link name="scissor/coupling_bracket">
+    <visual>
+      <origin xyz="0 -0.0075 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.035 0.015 0.05"/>
+      </geometry>
+      <material name="bracket_gray">
+        <color rgba="0.4 0.4 0.42 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="coupling_bracket_joint" type="fixed">
+    <origin xyz="0 0 0.01" rpy="0 0 0"/>
+    <parent link="scissor/motor_body"/>
+    <child link="scissor/coupling_bracket"/>
+  </joint>
+
+  <!-- ============ Arm Plate ============ -->
+  <!-- Size: x=30mm, y=10mm(thickness), z=130mm(length) -->
+  <!-- Touching bracket -Y surface (y=-0.015), offset by bracket thickness (15mm) -->
+  <!-- Plate center Y: -0.015 - 0.005 = -0.020 -->
+  <!-- Extends 130mm in -Z from bracket, center Z: -0.065 -->
+  <link name="scissor/arm_plate">
+    <visual>
+      <geometry>
+        <box size="0.030 0.010 0.130"/>
+      </geometry>
+      <material name="plate_gray">
+        <color rgba="0.5 0.5 0.52 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="arm_plate_joint" type="fixed">
+    <origin xyz="0 -0.020 -0.065" rpy="0 0 0"/>
+    <parent link="scissor/coupling_bracket"/>
+    <child link="scissor/arm_plate"/>
+  </joint>
+
+  <!-- ============ Transmission ============ -->
   <transmission name="scissor_trans">
     <type>transmission_interface/SimpleTransmission</type>
     <joint name="scissor_joint">

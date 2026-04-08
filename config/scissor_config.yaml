@@ -14,7 +14,7 @@ hardware:
   # Set open_is_max to true if max_position corresponds to open state
   # Set open_is_max to false if max_position corresponds to close state
   position_mapping:
-    open_is_max: true  # true: max_position = open, false: max_position = close
+    open_is_max: false  # true: max_position = open, false: max_position = close (0.50=closed, -3.14=open)
 
     # Custom open/close positions (optional)
     # If not specified, will use min/max positions based on open_is_max

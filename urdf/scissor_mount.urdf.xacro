@@ -1,0 +1,188 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    Scissors mount for HIRONX right arm.
+
+    Attach to RARM_JOINT5_Link (= rarm_end_coords):
+      - Mount bracket: -Z 20mm, extends -X 130mm, 30mm wide, 10mm thick
+      - Scissors pivot at bracket end, blade tip pointing -X
+
+    Usage in robot URDF:
+      <xacro:include filename="scissor_mount.urdf.xacro"/>
+      <xacro:scissor_mount parent="RARM_JOINT5_Link"/>
+  -->
+
+  <xacro:macro name="scissor_mount" params="parent">
+
+    <!-- ============ Mount Bracket ============ -->
+    <!-- 130mm x 30mm x 10mm, extending -X from parent -->
+    <link name="scissor_mount_bracket">
+      <visual>
+        <origin xyz="-0.065 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.130 0.030 0.010"/>
+        </geometry>
+        <material name="mount_aluminum">
+          <color rgba="0.7 0.7 0.72 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="-0.065 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.130 0.030 0.010"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- Parent (RARM_JOINT5_Link) to bracket: -Z 20mm -->
+    <joint name="scissor_mount_joint" type="fixed">
+      <origin xyz="0 0 -0.020" rpy="0 0 0"/>
+      <parent link="${parent}"/>
+      <child link="scissor_mount_bracket"/>
+    </joint>
+
+    <!-- ============ Scissors (from scissor.urdf) ============ -->
+
+    <!-- Pivot at bracket end (-X 130mm).
+         Rotate so scissors blade +Z maps to robot -X:
+         rpy="0 1.5708 0" rotates +Z to -X -->
+    <joint name="scissor_attach_joint" type="fixed">
+      <origin xyz="-0.130 0 0" rpy="0 1.5708 0"/>
+      <parent link="scissor_mount_bracket"/>
+      <child link="scissor/base_link"/>
+    </joint>
+
+    <!-- ======== Scissor Base Link (pivot) ======== -->
+    <link name="scissor/base_link">
+      <visual>
+        <geometry>
+          <sphere radius="0.001"/>
+        </geometry>
+        <material name="invisible">
+          <color rgba="0 0 0 0"/>
+        </material>
+      </visual>
+    </link>
+
+    <!-- ======== Pivot Pin ======== -->
+    <link name="scissor/pivot_pin">
+      <visual>
+        <geometry>
+          <cylinder radius="0.004" length="0.010"/>
+        </geometry>
+        <material name="dark_metal">
+          <color rgba="0.35 0.35 0.4 1"/>
+        </material>
+      </visual>
+    </link>
+    <joint name="pivot_pin_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <parent link="scissor/base_link"/>
+      <child link="scissor/pivot_pin"/>
+    </joint>
+
+    <!-- ======== Fixed Blade (70mm, +Z from pivot) ======== -->
+    <link name="scissor/fixed_blade">
+      <visual>
+        <origin xyz="0 0 0.035" rpy="0 0 0"/>
+        <geometry><box size="0.012 0.0015 0.07"/></geometry>
+        <material name="silver"><color rgba="0.82 0.82 0.86 1"/></material>
+      </visual>
+      <visual>
+        <origin xyz="0 0 -0.0325" rpy="0 0 0"/>
+        <geometry><box size="0.008 0.003 0.065"/></geometry>
+        <material name="gray"><color rgba="0.45 0.45 0.45 1"/></material>
+      </visual>
+      <visual>
+        <origin xyz="0 0 -0.070" rpy="1.5708 0 0"/>
+        <geometry><cylinder radius="0.013" length="0.004"/></geometry>
+        <material name="black"><color rgba="0.15 0.15 0.15 1"/></material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.035" rpy="0 0 0"/>
+        <geometry><box size="0.012 0.003 0.07"/></geometry>
+      </collision>
+    </link>
+    <joint name="fixed_blade_joint" type="fixed">
+      <origin xyz="0 0.0015 0" rpy="0 0 0"/>
+      <parent link="scissor/base_link"/>
+      <child link="scissor/fixed_blade"/>
+    </joint>
+
+    <!-- ======== Moving Blade (revolute) ======== -->
+    <link name="scissor/moving_blade">
+      <visual>
+        <origin xyz="0 0 0.035" rpy="0 0 0"/>
+        <geometry><box size="0.012 0.0015 0.07"/></geometry>
+        <material name="silver"/>
+      </visual>
+      <visual>
+        <origin xyz="0 0 -0.0325" rpy="0 0 0"/>
+        <geometry><box size="0.008 0.003 0.065"/></geometry>
+        <material name="gray"/>
+      </visual>
+      <visual>
+        <origin xyz="0 0 -0.070" rpy="1.5708 0 0"/>
+        <geometry><cylinder radius="0.013" length="0.004"/></geometry>
+        <material name="black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.035" rpy="0 0 0"/>
+        <geometry><box size="0.012 0.003 0.07"/></geometry>
+      </collision>
+    </link>
+    <joint name="scissor_joint" type="revolute">
+      <origin xyz="0 -0.0015 0" rpy="0 0 0"/>
+      <parent link="scissor/base_link"/>
+      <child link="scissor/moving_blade"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-3.1415" upper="0.50" effort="0" velocity="6.8"/>
+    </joint>
+
+    <!-- ======== Motor Body (XC330: 20x20x26mm) ======== -->
+    <link name="scissor/motor_body">
+      <visual>
+        <geometry><box size="0.020 0.020 0.026"/></geometry>
+        <material name="motor_black"><color rgba="0.15 0.15 0.15 1"/></material>
+      </visual>
+      <collision>
+        <geometry><box size="0.020 0.020 0.026"/></geometry>
+      </collision>
+    </link>
+    <joint name="motor_body_joint" type="fixed">
+      <origin xyz="0.01 -0.0085 -0.070" rpy="0 0 0"/>
+      <parent link="scissor/base_link"/>
+      <child link="scissor/motor_body"/>
+    </joint>
+
+    <!-- ======== Coupling Bracket ======== -->
+    <link name="scissor/coupling_bracket">
+      <visual>
+        <origin xyz="0 -0.0075 0" rpy="0 0 0"/>
+        <geometry><box size="0.035 0.015 0.05"/></geometry>
+        <material name="bracket_gray"><color rgba="0.4 0.4 0.42 1"/></material>
+      </visual>
+    </link>
+    <joint name="coupling_bracket_joint" type="fixed">
+      <origin xyz="0 0 0.01" rpy="0 0 0"/>
+      <parent link="scissor/motor_body"/>
+      <child link="scissor/coupling_bracket"/>
+    </joint>
+
+    <!-- ======== Blade Tip Frame (for IK target) ======== -->
+    <link name="scissor/blade_tip">
+      <visual>
+        <geometry><sphere radius="0.002"/></geometry>
+        <material name="tip_red"><color rgba="1 0.2 0.2 1"/></material>
+      </visual>
+    </link>
+    <joint name="blade_tip_joint" type="fixed">
+      <origin xyz="0 0 0.070" rpy="0 0 0"/>
+      <parent link="scissor/base_link"/>
+      <child link="scissor/blade_tip"/>
+    </joint>
+
+  </xacro:macro>
+
+</robot>

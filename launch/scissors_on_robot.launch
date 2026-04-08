@@ -1,10 +1,25 @@
 <launch>
-  <!-- Arguments for serial port, baud rate, and protocol version -->
-  <arg name="port_name" default="/dev/ttyUSB1" />
+  <!--
+    Launch scissors attached to HIRONX right arm.
+    - Starts dynamixel_scissors (motor control + angle converter + RSP)
+    - Publishes static TF: RARM_JOINT5_Link → scissor/base_link
+    - Scissors visualization appears in RViz on the robot arm
+  -->
+
+  <arg name="port_name" default="/dev/ttyUSB0" />
   <arg name="baud_rate" default="57600" />
   <arg name="protocol_1_0" default="false" />
+  <arg name="launch_rviz" default="false" />
 
-  <!-- Include Dynamixel hardware control (RSP disabled - we launch our own after angle conversion) -->
+  <!-- Mount offset from scissors.yaml:
+       translation: [-0.0635, -0.01, 0.200]
+       rotation_rpy: [0, 0, pi/2] → quat: [0, 0, 0.707107, 0.707107] -->
+
+  <!-- Static TF: RARM_JOINT5_Link → scissor/base_link -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="scissors_mount_tf"
+        args="-0.0635 -0.01 0.200 0 0 0.707107 0.707107 RARM_JOINT5_Link scissor/base_link" />
+
+  <!-- Dynamixel hardware control -->
   <include file="$(find dynamixel_general_hw)/launch/dynamixel_general_control.launch">
     <arg name="port_name" value="$(arg port_name)" />
     <arg name="baud_rate" value="$(arg baud_rate)" />
@@ -18,9 +33,7 @@
     <arg name="launch_rviz" value="false" />
   </include>
 
-  <!-- Motor angle -> scissors blade angle converter (4-bar linkage kinematics) -->
-  <!-- Subscribes: /ros_scissor/joint_states (motor angle) -->
-  <!-- Publishes:  /ros_scissor/joint_states_converted (scissors blade angle) -->
+  <!-- Angle converter: motor angle → blade angle -->
   <node pkg="dynamixel_scissors" type="scissors_angle_converter.py" name="scissors_angle_converter" output="screen">
     <param name="motor_x" value="0.01"/>
     <param name="motor_z" value="-0.070"/>
@@ -31,16 +44,12 @@
     <param name="closed_motor_angle" value="0.50"/>
   </node>
 
-  <!-- Robot state publisher using converted scissors angles -->
+  <!-- RSP: publishes scissor/* child frames from joint_states_converted -->
   <node ns="ros_scissor" name="robot_state_publisher"
         pkg="robot_state_publisher" type="robot_state_publisher">
     <remap from="joint_states" to="joint_states_converted"/>
   </node>
 
-  <!-- RViz -->
-  <node ns="ros_scissor" name="rviz" pkg="rviz" type="rviz"
-        args="-d $(find dynamixel_scissors)/config/scissor.rviz" />
-
-  <!-- Custom scissor control node -->
+  <!-- Scissor control node -->
   <node pkg="dynamixel_scissors" type="scissor_control_node.py" name="scissor_control" output="screen"/>
 </launch>
