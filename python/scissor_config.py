@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import math
 import yaml
 import rospy
 import os
@@ -55,8 +56,8 @@ class ScissorConfig:
                     'max_position': 0.50
                 },
                 'position_mapping': {
-                    'open_is_max': True,
-                    'custom_open_position': None,
+                    'open_is_max': False,
+                    'custom_open_position': -1.50,
                     'custom_close_position': None
                 }
             },
@@ -73,7 +74,10 @@ class ScissorConfig:
                 'max_effort': 1.0,
                 'safety_open_distance': 0.2,
                 'safety_cooldown': 2.0,
-                'effort_normal_threshold': 0.8
+                'effort_normal_threshold': 0.8,
+                'feedback_position_margin': 0.10,
+                'feedback_effort_max': 10.0,
+                'feedback_timeout': 1.0
             },
             'topics': {
                 'trajectory_goal': '/ros_scissor/position_joint_trajectory_controller/follow_joint_trajectory/goal',
@@ -151,7 +155,7 @@ class ScissorConfig:
         return self.get('hardware.position_limits.max_position', 0.50)
 
     def is_open_max(self) -> bool:
-        return self.get('hardware.position_mapping.open_is_max', True)
+        return self.get('hardware.position_mapping.open_is_max', False)
 
     def get_custom_open_position(self) -> Optional[float]:
         return self.get('hardware.position_mapping.custom_open_position')
@@ -181,6 +185,49 @@ class ScissorConfig:
         else:
             return self.get_max_position()
 
+    @staticmethod
+    def step_toward(current: float, target: float, distance: float) -> float:
+        """Move ``current`` toward ``target`` without assuming its sign."""
+        current = float(current)
+        target = float(target)
+        distance = abs(float(distance))
+        delta = target - current
+        if abs(delta) <= distance:
+            return target
+        return current + math.copysign(distance, delta)
+
+    def get_open_step(self, current: float, distance: Optional[float] = None) -> float:
+        if distance is None:
+            distance = self.get_position_increment()
+        return self.step_toward(current, self.get_open_position(), distance)
+
+    def get_close_step(self, current: float, distance: Optional[float] = None) -> float:
+        if distance is None:
+            distance = self.get_position_increment()
+        return self.step_toward(current, self.get_close_position(), distance)
+
+    def validate_feedback(self, position: float, effort: float = 0.0):
+        """Validate one hardware sample before it can affect motion safety."""
+        try:
+            position = float(position)
+            effort = float(effort)
+        except (TypeError, ValueError):
+            return False, 'non-numeric position/effort'
+        if not math.isfinite(position) or not math.isfinite(effort):
+            return False, 'non-finite position/effort'
+
+        margin = self.get_feedback_position_margin()
+        low = self.get_min_position() - margin
+        high = self.get_max_position() + margin
+        if position < low or position > high:
+            return False, ('position %.6f outside feedback range [%.3f, %.3f]'
+                           % (position, low, high))
+        effort_limit = self.get_feedback_effort_max()
+        if abs(effort) > effort_limit:
+            return False, ('effort %.6f exceeds feedback limit %.3f'
+                           % (effort, effort_limit))
+        return True, ''
+
     # Control configuration getters
     def get_position_increment(self) -> float:
         return self.get('control.position_increment', 0.05)
@@ -209,6 +256,18 @@ class ScissorConfig:
 
     def get_effort_normal_threshold(self) -> float:
         return self.get('safety.effort_normal_threshold', 0.8)
+
+    def get_feedback_position_margin(self) -> float:
+        return max(0.0, float(self.get(
+            'safety.feedback_position_margin', 0.10)))
+
+    def get_feedback_effort_max(self) -> float:
+        return max(self.get_max_effort(), float(self.get(
+            'safety.feedback_effort_max', 10.0)))
+
+    def get_feedback_timeout(self) -> float:
+        return max(0.05, float(self.get(
+            'safety.feedback_timeout', 1.0)))
 
     # Topic configuration getters
     def get_trajectory_goal_topic(self) -> str:

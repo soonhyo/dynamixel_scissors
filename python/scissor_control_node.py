@@ -17,19 +17,6 @@ class ScissorControlNode:
         self.config = ScissorConfig(config_file)
         self.config.print_config_summary()
 
-        self.pub = rospy.Publisher(
-            self.config.get_trajectory_goal_topic(),
-            FollowJointTrajectoryActionGoal,
-            queue_size=10
-        )
-
-        self.joint_sub = rospy.Subscriber(
-            self.config.get_joint_states_topic(),
-            JointState,
-            self.joint_state_callback,
-            queue_size=1
-        )
-
         self.current_position = 0.0
         self.center_position = 0.0
         self.position_increment = self.config.get_position_increment()
@@ -48,6 +35,24 @@ class ScissorControlNode:
         self.safety_active = False
         self.last_safety_time = rospy.Time.now()
         self.safety_cooldown = self.config.get_safety_cooldown()
+        self.feedback_timeout = float(rospy.get_param(
+            '~feedback_timeout', self.config.get_feedback_timeout()))
+        self.last_feedback_time = rospy.Time(0)
+        self.enable_effort_safety = bool(rospy.get_param(
+            '~enable_effort_safety', True))
+
+        self.pub = rospy.Publisher(
+            self.config.get_trajectory_goal_topic(),
+            FollowJointTrajectoryActionGoal,
+            queue_size=10
+        )
+
+        self.joint_sub = rospy.Subscriber(
+            self.config.get_joint_states_topic(),
+            JointState,
+            self.joint_state_callback,
+            queue_size=1
+        )
         
         self.settings = termios.tcgetattr(sys.stdin)
         
@@ -69,8 +74,8 @@ class ScissorControlNode:
         rospy.loginfo("  a/d: Decrease/Increase increment size")
         rospy.loginfo("  r: Reset to center position")
         rospy.loginfo("  c: Set current position as new center")
-        rospy.loginfo("  o: Full open (max position)")
-        rospy.loginfo("  p: Full close (min position)")
+        rospy.loginfo("  o: Full open (configured position)")
+        rospy.loginfo("  p: Full close (configured position)")
         rospy.loginfo("  t: Toggle scissor (open<->close)")
         rospy.loginfo("  u/j: Increase/Decrease max effort threshold")
         rospy.loginfo("  k/m: Increase/Decrease safety open distance")
@@ -110,7 +115,8 @@ class ScissorControlNode:
         self.cancel_current_trajectory()
         
         # Open by safety distance
-        target_pos = min(self.current_position + self.safety_open_distance, self.max_position)
+        target_pos = self.config.get_open_step(
+            self.current_position, self.safety_open_distance)
         rospy.logwarn(f"Safety opening: {self.current_position:.3f} -> {target_pos:.3f}")
         
         # Use shorter duration for emergency opening
@@ -123,28 +129,43 @@ class ScissorControlNode:
     
     def joint_state_callback(self, msg):
         try:
-            if self.target_joint in msg.name:
-                joint_index = msg.name.index(self.target_joint)
-                new_position = msg.position[joint_index]
-                if not self.joint_state_received:
-                    self.current_position = new_position
-                    self.center_position = new_position
-                    rospy.loginfo(f"Initial position from joint state: {new_position:.2f}")
-                    self.joint_state_received = True
-                else:
-                    self.current_position = new_position
-                    
-                # Update effort and check safety
-                if len(msg.effort) > joint_index:
-                    self.current_effort = abs(msg.effort[joint_index])
-                    self.check_safety()
-        except (ValueError, IndexError) as e:
+            joint_index = list(msg.name).index(self.target_joint)
+            new_position = msg.position[joint_index]
+        except (ValueError, IndexError):
             if not self.joint_state_received:
                 rospy.logwarn(f"Could not find joint '{self.target_joint}' in joint states")
+            return
+
+        effort = msg.effort[joint_index] if len(msg.effort) > joint_index else 0.0
+        valid, reason = self.config.validate_feedback(new_position, effort)
+        if not valid:
+            rospy.logwarn_throttle(
+                1.0, '[ScissorControl] rejected invalid feedback: %s', reason)
+            return
+
+        self.current_position = float(new_position)
+        self.current_effort = abs(float(effort))
+        self.last_feedback_time = rospy.Time.now()
+        if not self.joint_state_received:
+            self.center_position = self.current_position
+            rospy.loginfo(
+                f"Initial position from joint state: {self.current_position:.2f}")
+            self.joint_state_received = True
+        if self.enable_effort_safety:
+            self.check_safety()
+
+    def feedback_ready(self):
+        return bool(
+            self.joint_state_received
+            and (rospy.Time.now() - self.last_feedback_time).to_sec()
+            <= self.feedback_timeout)
     
     def publish_trajectory(self, position, duration=None):
         if duration is None:
             duration = self.config.get_default_duration()
+        if not self.feedback_ready():
+            rospy.logerr("Fresh scissor joint feedback unavailable; command blocked")
+            return False
         # Safety check
         if position > self.max_position or position < self.min_position:
             rospy.logerr(f"Position {position:.3f} is outside safe limits [{self.min_position:.2f}, {self.max_position:.2f}]")
@@ -219,7 +240,6 @@ class ScissorControlNode:
             duration = self.config.get_full_motion_duration()
         target_pos = self.config.get_open_position()
         if self.publish_trajectory(target_pos, duration):
-            self.current_position = target_pos
             precision = self.config.get_position_precision()
             rospy.loginfo(f"Full open executed: {target_pos:.{precision}f} rad")
             return True
@@ -231,7 +251,6 @@ class ScissorControlNode:
             duration = self.config.get_full_motion_duration()
         target_pos = self.config.get_close_position()
         if self.publish_trajectory(target_pos, duration):
-            self.current_position = target_pos
             precision = self.config.get_position_precision()
             rospy.loginfo(f"Full close executed: {target_pos:.{precision}f} rad")
             return True
@@ -263,20 +282,14 @@ class ScissorControlNode:
                 if key == 'q':
                     break
                 elif key == 'w':  # Open scissor
-                    new_pos = self.current_position + self.position_increment
-                    if new_pos <= self.max_position:
-                        self.current_position = new_pos
-                        self.publish_trajectory(self.current_position)
-                    else:
-                        rospy.logwarn("Maximum position reached!")
+                    new_pos = self.config.get_open_step(
+                        self.current_position, self.position_increment)
+                    self.publish_trajectory(new_pos)
                         
                 elif key == 's':  # Close scissor
-                    new_pos = self.current_position - self.position_increment
-                    if new_pos >= self.min_position:
-                        self.current_position = new_pos
-                        self.publish_trajectory(self.current_position)
-                    else:
-                        rospy.logwarn("Minimum position reached!")
+                    new_pos = self.config.get_close_step(
+                        self.current_position, self.position_increment)
+                    self.publish_trajectory(new_pos)
                         
                 elif key == 'a':  # Decrease increment
                     self.position_increment = max(0.01, self.position_increment - 0.01)
@@ -287,8 +300,7 @@ class ScissorControlNode:
                     rospy.loginfo(f"Position increment: {self.position_increment:.2f}")
                     
                 elif key == 'r':  # Reset to center
-                    self.current_position = self.center_position
-                    self.publish_trajectory(self.current_position)
+                    self.publish_trajectory(self.center_position)
                     rospy.loginfo(f"Reset to center position: {self.center_position:.2f}")
                     
                 elif key == 'c':  # Set current as center

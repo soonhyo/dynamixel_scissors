@@ -11,13 +11,18 @@
   <arg name="protocol_1_0" default="false" />
   <arg name="launch_rviz" default="false" />
   <arg name="enable_connection_monitor" default="true" />
+  <arg name="launch_keyboard_control" default="false" />
+  <!-- Keep true for the legacy standalone scissor.urdf viewer. Set false
+       when the mounted CAD tool is already merged into robot_description. -->
+  <arg name="publish_legacy_model" default="true" />
 
   <!-- Mount offset from scissors.yaml:
        translation: [-0.0635, -0.01, 0.200]
        rotation_rpy: [0, 0, pi/2] → quat: [0, 0, 0.707107, 0.707107] -->
 
   <!-- Static TF: RARM_JOINT5_Link → scissor/base_link -->
-  <node pkg="tf2_ros" type="static_transform_publisher" name="scissors_mount_tf"
+  <node if="$(arg publish_legacy_model)"
+        pkg="tf2_ros" type="static_transform_publisher" name="scissors_mount_tf"
         args="-0.0635 -0.01 0.200 0 0 0.707107 0.707107 RARM_JOINT5_Link scissor/base_link" />
 
   <!-- Dynamixel hardware control (respawn enabled for reconnection) -->
@@ -48,13 +53,22 @@
   </node>
 
   <!-- RSP: publishes scissor/* child frames from joint_states_converted -->
-  <node ns="ros_scissor" name="robot_state_publisher"
+  <node if="$(arg publish_legacy_model)"
+        ns="ros_scissor" name="robot_state_publisher"
         pkg="robot_state_publisher" type="robot_state_publisher">
     <remap from="joint_states" to="joint_states_converted"/>
   </node>
 
-  <!-- Scissor control node -->
-  <node pkg="dynamixel_scissors" type="scissor_control_node.py" name="scissor_control" output="screen"/>
+  <!-- Optional keyboard control. The action server remains the sole effort
+       safety owner to avoid duplicate emergency goals. -->
+  <node if="$(arg launch_keyboard_control)"
+        pkg="dynamixel_scissors" type="scissor_control_node.py"
+        name="scissor_control" output="screen">
+    <param name="enable_effort_safety" value="false" />
+  </node>
+
+  <!-- Scissor action server (closed-loop with retry) -->
+  <node pkg="dynamixel_scissors" type="scissor_action_server.py" name="scissor_action_server" output="screen" />
 
   <!-- Connection monitor: detects garbage data from failed syncRead, restarts dynamixel node -->
   <node if="$(arg enable_connection_monitor)"

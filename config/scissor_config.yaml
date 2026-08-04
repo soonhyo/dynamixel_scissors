@@ -18,7 +18,9 @@ hardware:
 
     # Custom open/close positions (optional)
     # If not specified, will use min/max positions based on open_is_max
-    custom_open_position: null   # Set to specific value to override
+    # Full-pipeline/CAD-validated opening. Keep the wider hardware limit
+    # available for commissioning, but never use it for full_open.
+    custom_open_position: -1.50
     custom_close_position: null  # Set to specific value to override
 
 # Control Parameters
@@ -38,6 +40,10 @@ safety:
   safety_open_distance: 0.2    # Distance to open when safety triggered
   safety_cooldown: 2.0         # Cooldown period after safety activation (seconds)
   effort_normal_threshold: 0.8 # Threshold to clear safety (fraction of max_effort)
+  # Reject failed syncRead garbage before it can trigger or satisfy motion.
+  feedback_position_margin: 0.10
+  feedback_effort_max: 10.0
+  feedback_timeout: 1.0
 
 # ROS Topic Configuration
 topics:

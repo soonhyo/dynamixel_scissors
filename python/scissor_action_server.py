@@ -1,316 +1,292 @@
 #!/usr/bin/env python3
+"""
+Scissor action server with closed-loop position verification and retry.
 
+Uses the FollowJointTrajectory action client (not topic publish) to send
+goals to the dynamixel controller, then verifies actual position arrival
+via joint_states feedback. Retries on failure.
+"""
+
+import numpy as np
 import rospy
 import actionlib
-from control_msgs.msg import FollowJointTrajectoryActionGoal
+from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryGoal
 from trajectory_msgs.msg import JointTrajectoryPoint
-from std_msgs.msg import Header
 from sensor_msgs.msg import JointState
-import actionlib_msgs.msg
 
-from dynamixel_scissors.msg import ScissorControlAction, ScissorControlGoal, ScissorControlResult, ScissorControlFeedback
+from dynamixel_scissors.msg import (
+    ScissorControlAction, ScissorControlResult, ScissorControlFeedback)
+from scissor_config import ScissorConfig
+
 
 class ScissorActionServer:
-    def __init__(self):
+
+    def __init__(self, config_file=None):
         rospy.init_node('scissor_action_server', anonymous=True)
-        
-        self.pub = rospy.Publisher(
-            '/sample_robot/position_joint_trajectory_controller/follow_joint_trajectory/goal',
-            FollowJointTrajectoryActionGoal,
-            queue_size=10
-        )
-        
-        self.joint_sub = rospy.Subscriber(
-            '/sample_robot/joint_states',
-            JointState,
-            self.joint_state_callback,
-            queue_size=1
-        )
-        
-        self.server = actionlib.SimpleActionServer(
-            'scissor_control',
-            ScissorControlAction,
-            self.execute_callback,
-            False
-        )
-        
-        # Core state variables
+
+        self.config = ScissorConfig(config_file)
+        self.config.print_config_summary()
+
+        # State
         self.current_position = 0.0
         self.center_position = 0.0
-        self.max_position = 0.50
-        self.min_position = -3.14
-        self.joint_state_received = False
-        self.target_joint = 'sample_joint'
-        self.last_command_time = rospy.Time.now()
-        self.min_command_interval = 0.05  # 50ms between commands
-        self.goal_id_counter = 0
-        
-        # Safety parameters
-        self.max_effort = 1.0
         self.current_effort = 0.0
-        self.safety_open_distance = 0.2
+        self.joint_state_received = False
         self.safety_active = False
-        self.last_safety_time = rospy.Time.now()
-        self.safety_cooldown = 2.0
-        
-        rospy.loginfo("Scissor Action Server Started")
-        rospy.loginfo("Waiting for initial joint state...")
-        
+        self.last_safety_time = rospy.Time(0)
+
+        # Parameters
+        self.joint_name = self.config.get_joint_name()
+        self.max_position = self.config.get_max_position()
+        self.min_position = self.config.get_min_position()
+        self.max_effort = self.config.get_max_effort()
+        self.safety_open_distance = self.config.get_safety_open_distance()
+        self.safety_cooldown = self.config.get_safety_cooldown()
+
+        self.position_tolerance = rospy.get_param('~position_tolerance', 0.05)
+        self.max_retries = rospy.get_param('~max_retries', 3)
+        self.settle_time = rospy.get_param('~settle_time', 0.3)
+        self.feedback_timeout = float(rospy.get_param(
+            '~feedback_timeout', self.config.get_feedback_timeout()))
+        self.last_feedback_time = rospy.Time(0)
+
+        # FollowJointTrajectory action client
+        fjt_topic = '/ros_scissor/position_joint_trajectory_controller/follow_joint_trajectory'
+        self.trajectory_client = actionlib.SimpleActionClient(
+            fjt_topic, FollowJointTrajectoryAction)
+        rospy.loginfo("[ScissorAction] Waiting for trajectory action server %s ...", fjt_topic)
+        if not self.trajectory_client.wait_for_server(rospy.Duration(10.0)):
+            rospy.logwarn("[ScissorAction] Trajectory action server not available, "
+                         "will retry on each goal")
+
+        # Joint state subscriber
+        self.joint_sub = rospy.Subscriber(
+            self.config.get_joint_states_topic(), JointState,
+            self._joint_state_cb, queue_size=1)
+
         # Wait for initial joint state
-        timeout = 5.0
-        start_time = rospy.Time.now()
-        while not self.joint_state_received and (rospy.Time.now() - start_time).to_sec() < timeout:
+        t0 = rospy.Time.now()
+        while not self.joint_state_received and (rospy.Time.now() - t0).to_sec() < 5.0:
             rospy.sleep(0.1)
-            
-        if not self.joint_state_received:
-            rospy.logwarn("No joint state received after 5 seconds, using default position 0.0")
+        if self.joint_state_received:
+            rospy.loginfo("[ScissorAction] Initial position: %.4f rad", self.current_position)
         else:
-            rospy.loginfo(f"Successfully received initial joint state: {self.current_position:.6f} rad")
-            
+            rospy.logwarn("[ScissorAction] No joint state received, using 0.0")
+
+        # ScissorControl action server
+        self.server = actionlib.SimpleActionServer(
+            'scissor_control', ScissorControlAction,
+            self._execute_cb, False)
         self.server.start()
-        rospy.loginfo("Action server ready to accept goals")
-    
-    def joint_state_callback(self, msg):
+        rospy.loginfo("[ScissorAction] Ready")
+
+    # ------------------------------------------------------------------ #
+    #  Joint state
+    # ------------------------------------------------------------------ #
+    def _joint_state_cb(self, msg):
         try:
-            if self.target_joint in msg.name:
-                joint_index = msg.name.index(self.target_joint)
-                new_position = msg.position[joint_index]
-                if not self.joint_state_received:
-                    self.current_position = new_position
-                    self.center_position = new_position
-                    rospy.loginfo(f"Initial position from joint state: {new_position:.2f}")
-                    self.joint_state_received = True
-                else:
-                    self.current_position = new_position
-                    
-                # Update effort and check safety
-                if len(msg.effort) > joint_index:
-                    self.current_effort = abs(msg.effort[joint_index])
-                    self.check_safety()
-        except (ValueError, IndexError) as e:
-            if not self.joint_state_received:
-                rospy.logwarn(f"Could not find joint '{self.target_joint}' in joint states")
-    
-    def check_safety(self):
-        """Check if effort exceeds safety limit and trigger protective action"""
+            idx = list(msg.name).index(self.joint_name)
+            position = msg.position[idx]
+        except (ValueError, IndexError):
+            return
+
+        effort = msg.effort[idx] if len(msg.effort) > idx else 0.0
+        valid, reason = self.config.validate_feedback(position, effort)
+        if not valid:
+            rospy.logwarn_throttle(
+                1.0, '[ScissorAction] rejected invalid feedback: %s', reason)
+            return
+
+        self.current_position = float(position)
+        self.current_effort = abs(float(effort))
+        self.last_feedback_time = rospy.Time.now()
+        if not self.joint_state_received:
+            self.center_position = self.current_position
+            self.joint_state_received = True
+
+        self._check_safety()
+
+    def _feedback_ready(self):
+        return bool(
+            self.joint_state_received
+            and (rospy.Time.now() - self.last_feedback_time).to_sec()
+            <= self.feedback_timeout)
+
+    def _check_safety(self):
         if self.current_effort > self.max_effort:
-            current_time = rospy.Time.now()
-            # Only trigger safety if not in cooldown period
-            if (current_time - self.last_safety_time).to_sec() > self.safety_cooldown:
-                rospy.logwarn(f"SAFETY TRIGGERED! Effort: {self.current_effort:.3f} > {self.max_effort:.3f}")
-                self.trigger_safety_open()
-                self.last_safety_time = current_time
+            now = rospy.Time.now()
+            if (now - self.last_safety_time).to_sec() > self.safety_cooldown:
+                rospy.logwarn("[ScissorAction] SAFETY: effort=%.3f > %.3f, opening",
+                             self.current_effort, self.max_effort)
+                target = self.config.get_open_step(
+                    self.current_position, self.safety_open_distance)
+                self._send_trajectory(target, duration=0.5, wait=False)
+                self.last_safety_time = now
                 self.safety_active = True
-        else:
-            # Reset safety flag when effort is normal
-            if self.safety_active and self.current_effort < self.max_effort * 0.8:
-                rospy.loginfo("Safety condition cleared - effort back to normal")
-                self.safety_active = False
-    
-    def trigger_safety_open(self):
-        """Emergency opening when high effort detected"""
-        # Cancel current trajectory by sending a stop command
-        self.cancel_current_trajectory()
-        
-        # Open by safety distance
-        target_pos = min(self.current_position + self.safety_open_distance, self.max_position)
-        rospy.logwarn(f"Safety opening: {self.current_position:.3f} -> {target_pos:.3f}")
-        
-        # Use shorter duration for emergency opening
-        self.publish_trajectory(target_pos, duration=0.5)
-    
-    def cancel_current_trajectory(self):
-        """Cancel current trajectory by sending goal with current position"""
-        rospy.loginfo("Cancelling current trajectory")
-        self.publish_trajectory(self.current_position, duration=0.1)
-    
-    def publish_trajectory(self, position, duration=0.3):
-        # Safety check
-        if position > self.max_position or position < self.min_position:
-            rospy.logerr(f"Position {position:.3f} is outside safe limits [{self.min_position:.2f}, {self.max_position:.2f}]")
-            return False
-            
-        # Rate limiting for smooth operation
-        current_time = rospy.Time.now()
-        if (current_time - self.last_command_time).to_sec() < self.min_command_interval:
-            return False
-        self.last_command_time = current_time
-        
-        # Increment goal ID for trajectory replacement
-        self.goal_id_counter += 1
-        msg = FollowJointTrajectoryActionGoal()
-        
-        # Header
-        msg.header = Header()
-        msg.header.stamp = rospy.Time.now()
-        msg.header.frame_id = ''
-        
-        # Goal ID for trajectory replacement
-        msg.goal_id = actionlib_msgs.msg.GoalID()
-        msg.goal_id.stamp = rospy.Time.now()
-        msg.goal_id.id = f'scissor_goal_{self.goal_id_counter}'
-        
-        # Trajectory
-        msg.goal.trajectory.header = Header()
-        msg.goal.trajectory.header.stamp = rospy.Time.now()
-        msg.goal.trajectory.header.frame_id = ''
-        
-        msg.goal.trajectory.joint_names = ['sample_joint']
-        
-        # Create smooth trajectory with intermediate points
-        current_pos = self.current_position
-        pos_diff = position - current_pos
-        
-        # Add intermediate point for smoother motion
-        mid_time = duration * 0.6
-        mid_pos = current_pos + pos_diff * 0.6
-        mid_vel = pos_diff / duration
-        
-        # Intermediate point
-        mid_point = JointTrajectoryPoint()
-        mid_point.positions = [mid_pos]
-        mid_point.velocities = [mid_vel]
-        mid_point.accelerations = [0.0]
-        mid_point.effort = [0.0]
-        mid_point.time_from_start = rospy.Duration(mid_time)
-        
-        # Final point
-        final_point = JointTrajectoryPoint()
-        final_point.positions = [position]
-        final_point.velocities = [0.0]  # Come to rest
-        final_point.accelerations = [0.0]
-        final_point.effort = [0.0]
-        final_point.time_from_start = rospy.Duration(duration)
-        
-        msg.goal.trajectory.points = [mid_point, final_point]
-        
-        # Tolerances (empty for default)
-        msg.goal.path_tolerance = []
-        msg.goal.goal_tolerance = []
-        msg.goal.goal_time_tolerance = rospy.Duration(0)
-        
-        self.pub.publish(msg)
-        rospy.loginfo(f"Published position: {position:.2f}")
+        elif self.safety_active and self.current_effort < self.max_effort * 0.8:
+            self.safety_active = False
+
+    # ------------------------------------------------------------------ #
+    #  Low-level trajectory
+    # ------------------------------------------------------------------ #
+    def _send_trajectory(self, position, duration=1.0, wait=True):
+        """Send a FollowJointTrajectory goal. Returns True if accepted."""
+        position = float(np.clip(position, self.min_position, self.max_position))
+
+        goal = FollowJointTrajectoryGoal()
+        goal.trajectory.joint_names = [self.joint_name]
+
+        point = JointTrajectoryPoint()
+        point.positions = [position]
+        point.velocities = [0.0]
+        point.time_from_start = rospy.Duration(duration)
+        goal.trajectory.points = [point]
+
+        self.trajectory_client.send_goal(goal)
+        if wait:
+            return self.trajectory_client.wait_for_result(
+                rospy.Duration(duration + 2.0))
         return True
-    
-    def execute_callback(self, goal):
-        """Execute action server callback"""
-        rospy.loginfo(f"Received goal: command='{goal.command}', position={goal.position}, duration={goal.duration}")
-        
-        # Create feedback message
+
+    def _position_reached(self, target):
+        return abs(self.current_position - target) <= self.position_tolerance
+
+    def _move_with_retry(self, target, duration, feedback_cb=None):
+        """Send trajectory, verify position, retry on failure.
+        Returns (success, message)."""
+        target = float(np.clip(target, self.min_position, self.max_position))
+
+        for attempt in range(1, self.max_retries + 1):
+            if self.server.is_preempt_requested():
+                return False, "Preempted"
+            if not self._feedback_ready():
+                return False, "Fresh joint feedback unavailable"
+
+            rospy.loginfo("[ScissorAction] Attempt %d/%d: %.3f -> %.3f",
+                          attempt, self.max_retries, self.current_position, target)
+
+            self._send_trajectory(target, duration, wait=True)
+
+            # Settle
+            rospy.sleep(self.settle_time)
+
+            if not self._feedback_ready():
+                return False, "Joint feedback became stale during motion"
+
+            if feedback_cb:
+                feedback_cb()
+
+            if self._position_reached(target):
+                return True, "Position reached (attempt %d)" % attempt
+
+            rospy.logwarn("[ScissorAction] Position not reached: "
+                         "current=%.3f target=%.3f tol=%.3f",
+                         self.current_position, target, self.position_tolerance)
+
+        return False, ("Failed after %d retries (current=%.3f, target=%.3f)"
+                       % (self.max_retries, self.current_position, target))
+
+    # ------------------------------------------------------------------ #
+    #  Action callback
+    # ------------------------------------------------------------------ #
+    def _execute_cb(self, goal):
         feedback = ScissorControlFeedback()
         result = ScissorControlResult()
-        
-        # Set default duration if not specified
+
         duration = goal.duration if goal.duration > 0 else 1.0
-        
-        try:
-            success = False
-            message = ""
-            
-            if goal.command == "open":
-                # Incremental open
-                increment = 0.05
-                target_pos = min(self.current_position + increment, self.max_position)
-                success = self.publish_trajectory(target_pos, duration)
-                message = f"Open command executed to position {target_pos:.3f}"
-                
-            elif goal.command == "close":
-                # Incremental close
-                increment = 0.05
-                target_pos = max(self.current_position - increment, self.min_position)
-                success = self.publish_trajectory(target_pos, duration)
-                message = f"Close command executed to position {target_pos:.3f}"
-                
-            elif goal.command == "full_open":
-                target_pos = self.max_position
-                success = self.publish_trajectory(target_pos, duration)
-                message = f"Full open executed to position {target_pos:.3f}"
-                
-            elif goal.command == "full_close":
-                target_pos = self.min_position
-                success = self.publish_trajectory(target_pos, duration)
-                message = f"Full close executed to position {target_pos:.3f}"
-                
-            elif goal.command == "set_position":
-                target_pos = goal.position
-                if target_pos > self.max_position or target_pos < self.min_position:
-                    success = False
-                    message = f"Position {target_pos:.3f} is outside safe limits [{self.min_position:.2f}, {self.max_position:.2f}]"
-                else:
-                    success = self.publish_trajectory(target_pos, duration)
-                    message = f"Set position executed to {target_pos:.3f}"
-                    
-            elif goal.command == "toggle":
-                # Toggle between open and close based on center position
-                if self.current_position > self.center_position:
-                    target_pos = self.min_position
-                    success = self.publish_trajectory(target_pos, duration)
-                    message = f"Toggle: close to position {target_pos:.3f}"
-                else:
-                    target_pos = self.max_position
-                    success = self.publish_trajectory(target_pos, duration)
-                    message = f"Toggle: open to position {target_pos:.3f}"
-                    
-            elif goal.command == "reset_center":
-                target_pos = self.center_position
-                success = self.publish_trajectory(target_pos, duration)
-                message = f"Reset to center position {target_pos:.3f}"
-                
-            elif goal.command == "set_center":
-                self.center_position = self.current_position
-                success = True
-                message = f"Set new center position to {self.center_position:.3f}"
-                
-            else:
-                success = False
-                message = f"Unknown command: {goal.command}"
-            
-            if not success:
-                rospy.logwarn(message)
-                result.success = False
-                result.message = message
-                result.final_position = self.current_position
-                self.server.set_aborted(result)
-                return
-            
-            # Wait for motion to complete and provide feedback
-            start_time = rospy.Time.now()
-            rate = rospy.Rate(10)  # 10 Hz feedback
-            
-            while (rospy.Time.now() - start_time).to_sec() < duration + 0.5:  # Add small buffer
-                if self.server.is_preempt_requested():
-                    rospy.loginfo("Goal preempted")
-                    self.server.set_preempted()
-                    return
-                    
-                # Publish feedback
-                feedback.current_position = self.current_position
-                feedback.current_effort = self.current_effort
-                feedback.safety_active = self.safety_active
-                feedback.status_message = f"Moving to target position"
-                self.server.publish_feedback(feedback)
-                
-                rate.sleep()
-            
-            # Success
-            result.success = True
-            result.message = message
-            result.final_position = self.current_position
-            
-            rospy.loginfo(f"Goal completed successfully: {message}")
-            self.server.set_succeeded(result)
-            
-        except Exception as e:
-            rospy.logerr(f"Error executing goal: {str(e)}")
+
+        if not self._feedback_ready():
             result.success = False
-            result.message = f"Error: {str(e)}"
+            result.message = "Fresh joint feedback unavailable"
             result.final_position = self.current_position
             self.server.set_aborted(result)
+            return
+
+        def publish_feedback():
+            feedback.current_position = self.current_position
+            feedback.current_effort = self.current_effort
+            feedback.safety_active = self.safety_active
+            feedback.status_message = "Moving"
+            self.server.publish_feedback(feedback)
+
+        # Resolve target position
+        cmd = goal.command.strip().lower()
+        target = None
+
+        if cmd == 'open':
+            target = self.config.get_open_step(self.current_position)
+        elif cmd == 'close':
+            target = self.config.get_close_step(self.current_position)
+        elif cmd == 'full_open':
+            target = self.config.get_open_position()
+        elif cmd == 'full_close':
+            target = self.config.get_close_position()
+        elif cmd == 'set_position':
+            target = goal.position
+        elif cmd == 'reset_center':
+            target = self.center_position
+        elif cmd == 'toggle':
+            open_pos = self.config.get_open_position()
+            close_pos = self.config.get_close_position()
+            if abs(self.current_position - open_pos) > abs(self.current_position - close_pos):
+                target = open_pos
+            else:
+                target = close_pos
+        elif cmd == 'set_center':
+            self.center_position = self.current_position
+            result.success = True
+            result.message = "Center set to %.3f" % self.center_position
+            result.final_position = self.current_position
+            self.server.set_succeeded(result)
+            return
+        else:
+            result.success = False
+            result.message = "Unknown command: %s" % cmd
+            result.final_position = self.current_position
+            self.server.set_aborted(result)
+            return
+
+        if target is None:
+            result.success = False
+            result.message = "Could not resolve target position"
+            result.final_position = self.current_position
+            self.server.set_aborted(result)
+            return
+
+        # Validate
+        if target < self.min_position or target > self.max_position:
+            result.success = False
+            result.message = ("Target %.3f outside limits [%.2f, %.2f]"
+                              % (target, self.min_position, self.max_position))
+            result.final_position = self.current_position
+            self.server.set_aborted(result)
+            return
+
+        rospy.loginfo("[ScissorAction] cmd=%s target=%.3f duration=%.1f",
+                      cmd, target, duration)
+
+        success, message = self._move_with_retry(target, duration, publish_feedback)
+
+        result.success = success
+        result.message = message
+        result.final_position = self.current_position
+
+        if success:
+            rospy.loginfo("[ScissorAction] %s", message)
+            self.server.set_succeeded(result)
+        else:
+            rospy.logwarn("[ScissorAction] %s", message)
+            self.server.set_aborted(result)
+
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', '-c', type=str, default=None)
+    args, _ = parser.parse_known_args()
+
     try:
-        server = ScissorActionServer()
+        ScissorActionServer(config_file=args.config)
         rospy.spin()
     except rospy.ROSInterruptException:
         pass

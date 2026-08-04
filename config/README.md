@@ -72,11 +72,11 @@ python3 scissor_control_node.py --config config/hardware_examples/custom_positio
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `hardware.joint_name` | ROS joint name | "sample_joint" |
+| `hardware.joint_name` | ROS joint name | "scissor_joint" |
 | `hardware.position_limits.min_position` | Minimum joint position (rad) | -3.14 |
 | `hardware.position_limits.max_position` | Maximum joint position (rad) | 0.50 |
-| `hardware.position_mapping.open_is_max` | If true, max_position=open | true |
-| `hardware.position_mapping.custom_open_position` | Custom open position | null |
+| `hardware.position_mapping.open_is_max` | If true, max_position=open | false |
+| `hardware.position_mapping.custom_open_position` | Custom open position | -1.50 |
 | `hardware.position_mapping.custom_close_position` | Custom close position | null |
 | `control.position_increment` | Manual control increment | 0.05 |
 | `control.trajectory.default_duration` | Default movement time (s) | 0.3 |

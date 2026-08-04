@@ -40,6 +40,11 @@ class ScissorsConnectionMonitor:
         self.bad_reading_threshold = rospy.get_param('~bad_reading_threshold', 3)
         # Cooldown after restart before monitoring again
         self.restart_cooldown = rospy.get_param('~restart_cooldown', 10.0)
+        # The position controller clamps an actuator that powers up outside
+        # its URDF limit. Do not mistake that initial convergence for corrupt
+        # syncRead data and kill the driver while it is becoming ready.
+        self.startup_grace = rospy.get_param('~startup_grace', 2.0)
+        self.started_time = rospy.Time.now()
 
         self.consecutive_bad_readings = 0
         self.is_connected = False
@@ -67,6 +72,9 @@ class ScissorsConnectionMonitor:
     #  Callback
     # ------------------------------------------------------------------ #
     def _joint_state_cb(self, msg):
+        if ((rospy.Time.now() - self.started_time).to_sec()
+                < self.startup_grace):
+            return
         # Skip during cooldown
         if (self.last_restart_time is not None and
                 (rospy.Time.now() - self.last_restart_time).to_sec() < self.restart_cooldown):
